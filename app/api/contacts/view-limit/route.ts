@@ -27,6 +27,9 @@ export async function GET() {
       },
     })
 
+    // Get total contacts count
+    const total = await prisma.contact.count()
+
     const remaining = Math.max(0, 50 - viewCount)
     const canView = viewCount < 50
 
@@ -35,6 +38,7 @@ export async function GET() {
       remaining,
       canView,
       limit: 50,
+      total,
     })
   } catch (error) {
     console.error('Error checking view limit:', error)

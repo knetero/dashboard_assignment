@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 type Contact = {
   id: string
@@ -24,31 +26,244 @@ type Contact = {
   }
 }
 
-type ContactsData = {
-  contacts: Contact[]
-  viewCount: number
-  remaining: number
-  limit: number
+const tableColumns = [
+  { label: 'Contact ID', width: 'w-[200px]' },
+  { label: 'First Name', width: 'w-[140px]' },
+  { label: 'Last Name', width: 'w-[140px]' },
+  { label: 'Email', width: 'w-60' },
+  { label: 'Phone', width: 'w-[150px]' },
+  { label: 'Title', width: 'w-[180px]' },
+  { label: 'Email Type', width: 'w-[140px]' },
+  { label: 'Contact Form URL', width: 'w-[200px]' },
+  { label: 'Department', width: 'w-[140px]' },
+  { label: 'Firm ID', width: 'w-[140px]' },
+  { label: 'Agency', width: 'w-[180px]' },
+  { label: 'Agency ID', width: 'w-[200px]' },
+  { label: 'Created At', width: 'w-40' },
+  { label: 'Updated At', width: 'w-40' },
+]
+
+const ContactRowSkeleton = () => (
+  <tr className="border-b">
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-full" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-20" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-24" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-40" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-28" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-32" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-20" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-16" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-24" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-32" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-28" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-full" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-24" /></td>
+    <td className="px-4 py-3 align-middle"><Skeleton className="h-4 w-24" /></td>
+  </tr>
+)
+
+// localStorage helper functions
+const CACHE_KEY = 'contacts-page-cache'
+const LIMIT_KEY = 'contacts-limit-info'
+
+const saveToCache = (page: number, data: Contact[]) => {
+  if (typeof window === 'undefined') return
+  try {
+    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')
+    cache[page] = data
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+  } catch (error) {
+    console.error('Error saving to cache:', error)
+  }
+}
+
+const getFromCache = (page: number): Contact[] | null => {
+  if (typeof window === 'undefined') return null
+  try {
+    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')
+    return cache[page] || null
+  } catch (error) {
+    console.error('Error reading from cache:', error)
+    return null
+  }
+}
+
+const saveLimitInfo = (info: { viewCount: number; remaining: number; limit: number; total: number }) => {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(LIMIT_KEY, JSON.stringify(info))
+  } catch (error) {
+    console.error('Error saving limit info:', error)
+  }
+}
+
+const getLimitInfo = () => {
+  if (typeof window === 'undefined') return null
+  try {
+    const info = localStorage.getItem(LIMIT_KEY)
+    return info ? JSON.parse(info) : null
+  } catch (error) {
+    console.error('Error reading limit info:', error)
+    return null
+  }
+}
+
+const getCachedPageCount = (): number => {
+  if (typeof window === 'undefined') return 0
+  try {
+    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')
+    const pages = Object.keys(cache).map(Number).filter(p => cache[p] && cache[p].length > 0)
+    return pages.length > 0 ? Math.max(...pages) : 0
+  } catch {
+    return 0
+  }
 }
 
 export default function ContactsPage() {
-  const [contacts, setContacts] = useState<Contact[]>([])
-  const [totalContacts, setTotalContacts] = useState(0)
-  const [viewCount, setViewCount] = useState(0)
-  const [remaining, setRemaining] = useState(50)
-  const [limit, setLimit] = useState(50)
-  const [loading, setLoading] = useState(true)
-  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(5)
+  const [resetting, setResetting] = useState(false)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [isLimitLoading, setIsLimitLoading] = useState(true)
+  
+  // Initialize from localStorage immediately to avoid flash of incorrect data
+  const [totalContacts, setTotalContacts] = useState(() => {
+    if (typeof window === 'undefined') return 0
+    const cached = getLimitInfo()
+    return cached?.total || 0
+  })
+  const [limit, setLimit] = useState(() => {
+    if (typeof window === 'undefined') return 50
+    const cached = getLimitInfo()
+    return cached?.limit || 50
+  })
+  
+  const [loading, setLoading] = useState(true)
   const [pageLoading, setPageLoading] = useState(false)
-  const [previousContacts, setPreviousContacts] = useState<Contact[]>([])
+  const itemsPerPage = 5
 
   // Pagination calculations
   const totalPages = Math.ceil(totalContacts / itemsPerPage)
+  const maxCachedPage = getCachedPageCount()
+  const maxAccessiblePage = Math.max(maxCachedPage, 1) // User can only access up to the max cached page + 1
   
-  // Use previous contacts while loading to prevent flash
-  const displayContacts = pageLoading && previousContacts.length > 0 ? previousContacts : contacts
+  // Use server's viewCount from localStorage (source of truth)
+  const cachedLimitInfo = typeof window !== 'undefined' ? getLimitInfo() : null
+  const actualViewedCount = Math.min(cachedLimitInfo?.viewCount ?? 0, limit)
+  const actualRemaining = Math.max(0, limit - actualViewedCount)
+
+  // Load cached data on mount and initial fetch
+  useEffect(() => {
+    const init = async () => {
+      try {
+        // First check localStorage for cached limit info
+        const cachedLimitInfo = getLimitInfo()
+        
+        // Check current limit status from server
+        const response = await fetch('/api/contacts/view-limit', {
+          headers: { 'Cache-Control': 'no-cache' },
+        })
+        const data = await response.json()
+        
+        // Only update if server data is more restrictive than cache
+        // This prevents API from resetting our limit state incorrectly
+        if (cachedLimitInfo && cachedLimitInfo.remaining === 0) {
+          // Trust the cached limit state - user was at limit
+          setLimit(cachedLimitInfo.limit)
+          setTotalContacts(data.total || cachedLimitInfo.total || 0)
+        } else {
+          // Use fresh server data
+          setLimit(data.limit || 50)
+          setTotalContacts(data.total || 0)
+        }
+        
+        // If user is at limit but cache exists, verify cache is valid
+        const serverRemaining = data.remaining ?? 50
+        if (serverRemaining === 0 || (cachedLimitInfo && cachedLimitInfo.remaining === 0)) {
+          const maxCached = getCachedPageCount()
+          const expectedMaxPage = Math.ceil((data.limit || 50) / itemsPerPage)
+          // If cache has more pages than possible, clear it
+          if (maxCached > expectedMaxPage) {
+            localStorage.removeItem(CACHE_KEY)
+          }
+        }
+      } catch (error) {
+        console.error('Error checking initial status:', error)
+        // Fallback to cached data
+        const cachedLimitInfo = getLimitInfo()
+        if (cachedLimitInfo) {
+          setLimit(cachedLimitInfo.limit)
+          setTotalContacts(cachedLimitInfo.total)
+        }
+      } finally {
+        setIsLimitLoading(false)
+        setLoading(false)
+      }
+    }
+    
+    init()
+  }, [])
+
+  // Load page data (check cache first, then fetch)
+  useEffect(() => {
+    if (loading) return
+
+    const loadPage = async () => {
+      // Check cache first
+      const cached = getFromCache(currentPage)
+      if (cached) {
+        setContacts(cached)
+        return
+      }
+
+      // Fetch from API
+      setPageLoading(true)
+      try {
+        const response = await fetch(
+          `/api/contacts?page=${currentPage}&limit=${itemsPerPage}`,
+          { headers: { 'Cache-Control': 'no-cache' } }
+        )
+
+        if (response.status === 403) {
+          const errorData = await response.json()
+          setLimit(errorData.limit || 50)
+          saveLimitInfo({
+            viewCount: errorData.viewCount || 50,
+            remaining: 0,
+            limit: errorData.limit || 50,
+            total: totalContacts
+          })
+          setPageLoading(false)
+          return
+        }
+
+        const data = await response.json()
+        const fetchedContacts = data.contacts || []
+
+        setContacts(fetchedContacts)
+        setTotalContacts(data.total || 0)
+        
+        // Update limit info immediately
+        const newLimitInfo = {
+          viewCount: data.viewCount || 0,
+          remaining: data.remaining ?? 0,
+          limit: data.limit || 50,
+          total: data.total || 0
+        }
+        
+        setLimit(newLimitInfo.limit)
+
+        // Save to cache and limit info
+        saveToCache(currentPage, fetchedContacts)
+        saveLimitInfo(newLimitInfo)
+      } catch (error) {
+        console.error('Error loading contacts:', error)
+      } finally {
+        setPageLoading(false)
+      }
+    }
+
+    loadPage()
+  }, [currentPage, itemsPerPage, loading, totalContacts])
 
   // Generate page numbers for pagination
   const getPageNumbers = () => {
@@ -87,73 +302,34 @@ export default function ContactsPage() {
     return pages
   }
 
-  // Load limit info on mount
-  useEffect(() => {
-    async function loadLimitInfo() {
-      try {
-        const response = await fetch('/api/contacts/view-limit')
-        const data = await response.json()
-        setViewCount(data.viewCount || 0)
-        setRemaining(data.remaining || 50)
-        setLimit(data.limit || 50)
-        
-        if (data.remaining === 0) {
-          setShowUpgradePrompt(true)
-        }
-      } catch (error) {
-        console.error('Error loading limit info:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadLimitInfo()
-  }, [])
-
-  // Load contacts for current page
-  useEffect(() => {
-    async function loadPageContacts() {
-      if (showUpgradePrompt || loading) return
+  const handleResetLimits = async () => {
+    setResetting(true)
+    try {
+      const response = await fetch('/api/contacts/reset-limits', {
+        method: 'POST',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      })
       
-      setPageLoading(true)
-      try {
-        const response = await fetch(
-          `/api/contacts?page=${currentPage}&limit=${itemsPerPage}`
-        )
-        
-        if (response.status === 403) {
-          const errorData = await response.json()
-          setViewCount(errorData.viewCount || 50)
-          setRemaining(0)
-          setShowUpgradePrompt(true)
-          setPageLoading(false)
-          return
-        }
-
-        const data = await response.json()
-        setPreviousContacts(contacts) // Store previous contacts
-        setContacts(data.contacts || [])
-        setTotalContacts(data.total || 0)
-        setViewCount(data.viewCount || 0)
-        setRemaining(data.remaining || 0)
-        setLimit(data.limit || 50)
-      } catch (error) {
-        console.error('Error loading page contacts:', error)
-      } finally {
-        // Delay to ensure smooth transition
-        setTimeout(() => setPageLoading(false), 150)
+      if (response.ok) {
+        // Clear localStorage cache
+        localStorage.removeItem(CACHE_KEY)
+        localStorage.removeItem(LIMIT_KEY)
+        // Hard reload to clear cache and fetch fresh data
+        window.location.href = window.location.href
+      } else {
+        const error = await response.json()
+        console.error('Reset failed:', error)
+        alert('Failed to reset limits: ' + (error.error || 'Unknown error'))
+        setResetting(false)
       }
+    } catch (error) {
+      console.error('Error resetting limits:', error)
+      alert('Failed to reset limits: ' + error)
+      setResetting(false)
     }
-
-    loadPageContacts()
-  }, [currentPage, itemsPerPage, showUpgradePrompt, loading])
-
-  // Reset page if it exceeds total pages
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages)
-    }
-  }, [currentPage, totalPages])
+  }
 
   if (loading) {
     return (
@@ -164,65 +340,59 @@ export default function ContactsPage() {
     )
   }
 
-  if (showUpgradePrompt) {
-    return (
-      <div className="flex items-center justify-center p-6">
-        <Card>
-          <CardHeader className="text-center pb-4">
-            <div className="flex justify-center mb-4">
-              <div className="rounded-full bg-yellow-100 dark:bg-yellow-900 p-4">
-                <svg
-                  className="h-12 w-12 text-yellow-600 dark:text-yellow-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-              </div>
-            </div>
-            <CardTitle className="text-2xl">Daily View Limit Reached</CardTitle>
-            <CardDescription className="text-base mt-2">
-              You&apos;ve reached your daily limit of {limit} contact views
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="p-4 rounded-lg border bg-muted/50">
-              <p className="text-sm text-muted-foreground">
-                Upgrade to premium to get unlimited access to all contacts and enjoy additional features.
-              </p>
-            </div>
-            <div className="space-y-3">
+  return (
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      {/* Persistent Banner - Only show when limit reached and limit info is loaded */}
+      {!isLimitLoading && actualRemaining === 0 && (
+        <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/30">
+          <svg
+            className="h-5 w-5 text-yellow-600 dark:text-yellow-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
+          </svg>
+          <AlertTitle className="text-yellow-900 dark:text-yellow-100 font-semibold">
+            Daily View Limit Reached
+          </AlertTitle>
+          <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+            <p className="mb-3">
+              You&apos;ve reached your daily limit of {limit} contacts. You can still view the contacts you&apos;ve already seen today, but need to upgrade to view new ones.
+            </p>
+            <div className="flex flex-wrap gap-2">
               <Button
-                className="w-full"
-                size="lg"
+                size="sm"
+                className="bg-yellow-600 hover:bg-yellow-700 text-white"
                 onClick={() => alert('Payment integration not implemented')}
               >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
                 Upgrade to Premium
               </Button>
-              <Button variant="outline" className="w-full" onClick={() => globalThis.history.back()}>
-                Back
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetLimits}
+                disabled={resetting}
+                className="border-yellow-600 text-yellow-900 dark:text-yellow-100 hover:bg-yellow-100 dark:hover:bg-yellow-900"
+              >
+                {resetting ? 'Resetting...' : '🔄 Reset Limits (Dev)'}
               </Button>
             </div>
-            <p className="text-sm text-center text-muted-foreground">
+            <p className="text-xs mt-2 text-yellow-700 dark:text-yellow-300">
               Your limit will reset tomorrow at midnight UTC
             </p>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+          </AlertDescription>
+        </Alert>
+      )}
 
-  return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
@@ -231,28 +401,41 @@ export default function ContactsPage() {
             View and manage contacts with daily view limit tracking
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
-            <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleResetLimits}
+            disabled={resetting}
+            className="text-xs shrink-0"
+          >
+            {resetting ? 'Resetting...' : '🔄 Reset Limits'}
+          </Button>
+          {!isLimitLoading && (
+            <>
+          <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-primary/10 border border-primary/20">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-bold text-primary">{totalContacts}</span>
-              <span className="text-xs text-muted-foreground font-medium">Total</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg sm:text-2xl font-bold text-primary">{totalContacts}</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground font-medium whitespace-nowrap">Total</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5">
-                <div className="h-1.5 w-1.5 rounded-full bg-blue-500"></div>
-                <span className="text-xs text-muted-foreground">{viewCount} / {limit} viewed</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-muted/50 border">
+            <div className="flex flex-col gap-0.5 sm:gap-1">
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className="h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full bg-blue-500 shrink-0"></div>
+                <span className="text-[10px] sm:text-xs text-muted-foreground whitespace-nowrap">{actualViewedCount} / {limit} viewed</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className={`h-1.5 w-1.5 rounded-full ${remaining > 0 ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                <span className="text-xs font-medium">{remaining} remaining</span>
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className={`h-1 w-1 sm:h-1.5 sm:w-1.5 rounded-full shrink-0 ${actualRemaining > 0 ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <span className="text-[10px] sm:text-xs font-medium whitespace-nowrap">{actualRemaining} remaining</span>
               </div>
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -268,60 +451,51 @@ export default function ContactsPage() {
           </div>
         </CardHeader>
 
+        <div className="px-4 pb-2 md:hidden">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950 px-3 py-2 rounded-md">
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+            <span>Scroll horizontally to view all columns</span>
+          </div>
+        </div>
+
         <CardContent className="p-0 overflow-x-auto relative">
-          <div className="overflow-y-auto" style={{ maxHeight: '500px', minHeight: '400px' }}>
-            <table className="w-full table-fixed">
-              <thead className="sticky top-0 z-10">
+          {contacts.length === 0 && !pageLoading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-24">
+              <svg className="w-16 h-16 text-muted-foreground/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <div className="text-center">
+                <p className="font-semibold text-lg text-foreground">No contacts available</p>
+                <p className="text-sm text-muted-foreground mt-1">There are no contacts to display at the moment</p>
+              </div>
+            </div>
+          ) : (
+          <table className="w-full table-fixed">
+            <thead className="sticky top-0 z-10">
                 <tr className="bg-muted/50 border-b-2">
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[200px] whitespace-nowrap">Contact ID</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[140px] whitespace-nowrap">First Name</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[140px] whitespace-nowrap">Last Name</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-60 whitespace-nowrap">Email</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[150px] whitespace-nowrap">Phone</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[180px] whitespace-nowrap">Title</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[140px] whitespace-nowrap">Email Type</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[200px] whitespace-nowrap">Contact Form URL</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[140px] whitespace-nowrap">Department</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[140px] whitespace-nowrap">Firm ID</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[180px] whitespace-nowrap">Agency</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-[200px] whitespace-nowrap">Agency ID</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-40 whitespace-nowrap">Created At</th>
-                  <th className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left w-40 whitespace-nowrap">Updated At</th>
+                  {tableColumns.map((column) => (
+                    <th 
+                      key={column.label}
+                      className={`font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground text-left ${column.width} whitespace-nowrap`}
+                    >
+                      {column.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
             <tbody>
               {pageLoading ? (
-                <tr className="animate-pulse">
-                  <td colSpan={14} className="text-center py-12">
-                    <div className="flex flex-col items-center gap-2 opacity-60">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                      <p className="text-sm text-muted-foreground">Loading contacts...</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : displayContacts.length === 0 ? (
-                <tr>
-                  <td colSpan={14} className="text-center py-12 text-muted-foreground">
-                    <div className="flex flex-col items-center gap-2">
-                      <svg className="w-12 h-12 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
-                      <p className="font-medium">No contacts available</p>
-                      <p className="text-sm">You&apos;ve reached your daily viewing limit</p>
-                    </div>
-                  </td>
-                </tr>
+                // Skeleton loading state
+                Array.from({ length: itemsPerPage }).map((_, idx) => (
+                  <ContactRowSkeleton key={`skeleton-${idx}`} />
+                ))
               ) : (
-                displayContacts.map((contact: Contact, idx: number) => (
+                contacts.map((contact: Contact) => (
                   <tr 
                     key={contact.id} 
-                    className={`hover:bg-muted/50 transition-all duration-200 border-b ${pageLoading ? 'opacity-50' : 'animate-in fade-in'}`}
-                    style={{ 
-                      height: '60px',
-                      animationDelay: pageLoading ? '0ms' : `${idx * 30}ms`,
-                      animationDuration: '300ms',
-                      animationFillMode: 'backwards'
-                    }}
+                    className="hover:bg-muted/50 transition-all duration-200 border-b"
                   >
                     <td className="px-4 py-3 align-middle">
                       <div className="truncate whitespace-nowrap overflow-hidden text-xs font-mono" title={contact.id}>{contact.id}</div>
@@ -390,8 +564,7 @@ export default function ContactsPage() {
               )}
             </tbody>
           </table>
-          </div>
-
+          )}
         </CardContent>
         
         {/* Pagination Controls */}
@@ -414,8 +587,9 @@ export default function ContactsPage() {
 
               {/* Page Numbers */}
               <div className="flex items-center gap-1">
-                {getPageNumbers().map((page, index) => (
-                  page === '...' ? (
+                {getPageNumbers().map((page, index) => {
+                  const isPageAccessible = typeof page === 'number' && page <= maxAccessiblePage + 1
+                  return page === '...' ? (
                     <span key={`ellipsis-${index}`} className="px-2 text-muted-foreground">
                       …
                     </span>
@@ -425,12 +599,13 @@ export default function ContactsPage() {
                       variant={currentPage === page ? "default" : "outline"}
                       size="sm"
                       onClick={() => setCurrentPage(page as number)}
+                      disabled={!isPageAccessible}
                       className="h-8 w-8 p-0 text-xs md:h-9 md:w-9 md:text-sm"
                     >
                       {page}
                     </Button>
                   )
-                ))}
+                })}
               </div>
 
               {/* Next Button */}
@@ -438,7 +613,7 @@ export default function ContactsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
+                disabled={currentPage === totalPages || currentPage >= maxAccessiblePage + 1}
                 className="h-8 px-2 text-xs md:h-9 md:px-3 md:text-sm"
               >
                 <span className="hidden md:inline">Next</span>

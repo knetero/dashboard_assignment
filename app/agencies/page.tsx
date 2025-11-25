@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 
 type Agency = {
   id: string
@@ -41,17 +42,54 @@ type Agency = {
   }
 }
 
+const tableColumns = [
+  { label: 'Agency ID', align: 'left' },
+  { label: 'Name', align: 'left' },
+  { label: 'Type', align: 'left' },
+  { label: 'State', align: 'left' },
+  { label: 'State Code', align: 'left' },
+  { label: 'County', align: 'left' },
+  { label: 'Population', align: 'right' },
+  { label: 'Website', align: 'left' },
+  { label: 'Phone', align: 'left' },
+  { label: 'Total Schools', align: 'right' },
+  { label: 'Total Students', align: 'right' },
+  { label: 'Mailing Address', align: 'left' },
+  { label: 'Physical Address', align: 'left' },
+  { label: 'Grade Span', align: 'left' },
+  { label: 'Locale', align: 'left' },
+  { label: 'CSA CBSA', align: 'left' },
+  { label: 'Domain Name', align: 'left' },
+  { label: 'Status', align: 'left' },
+  { label: 'Student Teacher Ratio', align: 'right' },
+  { label: 'Supervisory Union', align: 'left' },
+  { label: 'Created At', align: 'left' },
+  { label: 'Updated At', align: 'left' },
+  { label: 'Contacts', align: 'right' },
+]
+
+const AgencyRowSkeleton = () => (
+  <TableRow>
+    {tableColumns.map((_, idx) => (
+      <TableCell key={idx} className="px-4 py-3">
+        <Skeleton className="h-4 w-full" />
+      </TableCell>
+    ))}
+  </TableRow>
+)
+
 export default function AgenciesPage() {
   const [agencies, setAgencies] = useState<Agency[]>([])
+  const [totalAgencies, setTotalAgencies] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [pageLoading, setPageLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(5)
+  const [pageCache, setPageCache] = useState<Map<number, Agency[]>>(new Map())
 
   // Pagination calculations
-  const totalPages = Math.ceil(agencies.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const currentAgencies = agencies.slice(startIndex, endIndex)
+  const totalPages = Math.ceil(totalAgencies / itemsPerPage)
+  const currentAgencies = agencies
 
   // Generate page numbers for pagination
   const getPageNumbers = () => {
@@ -92,20 +130,42 @@ export default function AgenciesPage() {
 
   useEffect(() => {
     async function loadAgencies() {
+      if (loading) return
+      
+      // Check if page is already cached
+      if (pageCache.has(currentPage)) {
+        setAgencies(pageCache.get(currentPage)!)
+        return
+      }
+      
+      setPageLoading(true)
       try {
-        const response = await fetch('/api/agencies')
+        const response = await fetch(
+          `/api/agencies?page=${currentPage}&limit=${itemsPerPage}`,
+          { headers: { 'Cache-Control': 'no-cache' } }
+        )
         const data = await response.json()
-        setAgencies(data || [])
-        setCurrentPage(1)
+        const fetchedAgencies = data.agencies || []
+        
+        setAgencies(fetchedAgencies)
+        setTotalAgencies(data.total || 0)
+        
+        // Cache this page's data
+        setPageCache(prev => new Map(prev).set(currentPage, fetchedAgencies))
       } catch (error) {
         console.error('Error loading agencies:', error)
         setAgencies([])
       } finally {
-        setLoading(false)
+        setPageLoading(false)
       }
     }
 
     loadAgencies()
+  }, [currentPage, itemsPerPage, loading, pageCache])
+
+  // Initial load
+  useEffect(() => {
+    setLoading(false)
   }, [])
 
   // Reset page if it exceeds total pages
@@ -138,7 +198,7 @@ export default function AgenciesPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-bold text-primary">{agencies.length}</span>
+            <span className="text-2xl font-bold text-primary">{totalAgencies}</span>
             <span className="text-xs text-muted-foreground font-medium">Total</span>
           </div>
         </div>
@@ -151,7 +211,7 @@ export default function AgenciesPage() {
               <div className="space-y-1">
                 <CardTitle className="text-xl font-bold">All Agencies</CardTitle>
                 <CardDescription className="text-sm">
-                  {agencies.length === 0 ? 'No agencies available' : `Showing ${startIndex + 1}-${Math.min(endIndex, agencies.length)} of ${agencies.length} agencies`}
+                  {totalAgencies === 0 ? 'No agencies available' : `Showing ${((currentPage - 1) * itemsPerPage) + 1}-${Math.min(currentPage * itemsPerPage, totalAgencies)} of ${totalAgencies} agencies`}
                 </CardDescription>
               </div>
             </div>
@@ -166,37 +226,25 @@ export default function AgenciesPage() {
           </div>
         </div>
         <CardContent className="p-0 overflow-x-auto relative">
-          <div className="absolute right-0 top-0 bottom-0 w-8 bg-linear-to-l from-background to-transparent pointer-events-none md:hidden z-10"></div>
           <Table className="min-w-full">
             <TableHeader>
               <TableRow className="bg-muted/50 border-b-2">
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Agency ID</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Name</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Type</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">State</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">State Code</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">County</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Population</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Website</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Phone</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Total Schools</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Total Students</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Mailing Address</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Physical Address</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Grade Span</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Locale</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">CSA CBSA</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Domain Name</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Status</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Student Teacher Ratio</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Supervisory Union</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Created At</TableHead>
-                <TableHead className="font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground">Updated At</TableHead>
-                <TableHead className="font-semibold text-right px-4 py-4 text-xs uppercase tracking-wider text-foreground">Contacts</TableHead>
+                {tableColumns.map((column) => (
+                  <TableHead 
+                    key={column.label}
+                    className={`font-semibold px-4 py-4 text-xs uppercase tracking-wider text-foreground ${column.align === 'right' ? 'text-right' : ''}`}
+                  >
+                    {column.label}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {agencies.length === 0 ? (
+              {pageLoading ? (
+                Array.from({ length: itemsPerPage }).map((_, idx) => (
+                  <AgencyRowSkeleton key={`skeleton-${idx}`} />
+                ))
+              ) : agencies.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={23} className="text-center py-12 text-muted-foreground">
                     <div className="flex flex-col items-center gap-2">

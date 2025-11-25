@@ -45,7 +45,14 @@ export async function GET(request: NextRequest) {
           remaining: 0,
           limit: DAILY_CONTACT_LIMIT,
         },
-        { status: 403 }
+        { 
+          status: 403,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          },
+        }
       )
     }
 
@@ -119,7 +126,7 @@ export async function GET(request: NextRequest) {
       remaining: updatedRemaining,
       limit: DAILY_CONTACT_LIMIT,
       page,
-      totalPages: Math.ceil(Math.min(total, remaining) / limit),
+      totalPages: Math.ceil(total / limit),
     })
   } catch (error) {
     console.error('Error fetching contacts:', error)
