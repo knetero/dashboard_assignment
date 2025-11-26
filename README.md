@@ -1,12 +1,13 @@
 # Dashboard Application
 
-A Next.js dashboard application for managing agencies and contacts with Clerk authentication and daily view limits.
+A Next.js dashboard application for managing agencies and contacts with Clerk authentication and configurable view limits.
 
 ## Features
 
 - 🔐 **Clerk Authentication** - Secure user authentication
 - 🏢 **Agencies Management** - View all agencies in a table
-- 👥 **Contacts Management** - View contacts with 50-per-day limit
+- 👥 **Contacts Management** - View contacts with configurable daily limits
+- 💎 **Premium Upgrade** - Premium popup when limit is reached
 - 📊 **Shadcn UI Tables** - Beautiful, accessible data tables
 - 🗄️ **Prisma + SQLite** - Type-safe database with automatic CSV import
 - ⚡ **Next.js 16** - Latest Next.js with Turbopack
@@ -21,13 +22,16 @@ npm install
 
 **Note:** CSV data is automatically imported during installation via the postinstall hook.
 
-### 2. Set Up Clerk Authentication
+### 2. Set Up Environment Variables
 
-Create a `.env.local` file in the project root and add your Clerk keys:
+Create a `.env.local` file in the project root and add your Clerk keys and configuration:
 
 ```bash
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_publishable_key
 CLERK_SECRET_KEY=your_secret_key
+
+# Optional: Configure contact view limit window in hours (default: 24)
+CONTACT_LIMIT_HOURS=24
 ```
 
 Get your keys from [Clerk Dashboard](https://dashboard.clerk.com/).
@@ -44,7 +48,8 @@ Open [http://localhost:3000](http://localhost:3000) to view the application.
 
 - Click "Sign Up" to create an account
 - Navigate to **Agencies** to view all agencies
-- Navigate to **Contacts** to view contacts (limited to 50 per day)
+- Navigate to **Contacts** to view contacts (limited to 50 per configured window)
+- **Dev Tools**: Use the "Reset Limits" button in the contacts page to reset your view count for testing.
 
 ## Database
 
@@ -70,6 +75,9 @@ app/
 ├── contacts/          # Contacts page with view limiting
 ├── api/              # API routes
 │   ├── contacts/     # Contact endpoints
+│   │   ├── route.ts      # Main contacts API with limit logic
+│   │   ├── view-limit/   # Check current limit status
+│   │   └── reset-limits/ # Dev tool to reset limits
 │   └── import/       # CSV import endpoints
 ├── lib/              # Utilities (Prisma client)
 └── layout.tsx        # Root layout with Clerk
@@ -78,6 +86,53 @@ components/ui/        # Shadcn UI components
 prisma/              # Database schema and migrations
 scripts/             # CSV import script
 public/              # CSV data files
+```
+
+## System Design
+
+The following diagram illustrates the high-level architecture and data flow of the application, specifically focusing on the Contact Viewing System and its limit enforcement logic.
+
+```mermaid
+graph TD
+    Client["Client Browser"] -->|Request| Middleware{"Middleware<br/>(Clerk Auth)"}
+    
+    Middleware -->|Unauthenticated| AuthFail["401 Unauthorized"]
+    Middleware -->|Authenticated| Router{"API Router"}
+    
+    Router -->|/api/agencies| AgenciesAPI["Agencies API"]
+    Router -->|/api/contacts| ContactsAPI["Contacts API"]
+    Router -->|/api/contacts/view-limit| LimitAPI["View Limit API"]
+    
+    subgraph "Agencies Flow"
+        AgenciesAPI --> FetchAgencies["Fetch Agencies<br/>(Prisma)"]
+        FetchAgencies --> CountContacts["Count Contacts"]
+        CountContacts --> AgenciesRes["Return Agencies List"]
+    end
+    
+    subgraph "Contacts & Limits Flow"
+        ContactsAPI --> CheckSession{"Check Limit Session"}
+        LimitAPI --> CheckSession
+        
+        CheckSession -->|Expired| ResetLimits["Reset View Records<br/>& Delete Session"]
+        CheckSession -->|Active| CountViews["Count Current Views"]
+        ResetLimits --> CountViews
+        
+        CountViews --> CheckLimit{"Limit Reached?<br/>(> 50)"}
+        
+        CheckLimit -->|Yes| LimitError["403 Forbidden<br/>Limit Reached"]
+        
+        CheckLimit -->|No| FetchContacts["Fetch Contacts"]
+        
+        FetchContacts --> FilterViewed["Filter Already Viewed"]
+        FilterViewed --> RecordViews["Record New Views<br/>(ContactView Table)"]
+        RecordViews --> UpdateSession["Update Session<br/>(DailyContactView)"]
+        UpdateSession --> ContactsRes["Return Contacts List"]
+    end
+    
+    AgenciesRes --> Client
+    ContactsRes --> Client
+    LimitError --> Client
+    LimitAPI -->|Return Status| Client
 ```
 
 ## Available Scripts
