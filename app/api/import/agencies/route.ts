@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { prisma } from '@/app/lib/prisma'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(request: NextRequest) {
   const { userId } = await auth()
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     const text = await file.text()
     const lines = text.split('\n').filter(line => line.trim())
-    
+
     if (lines.length < 2) {
       return NextResponse.json({ error: 'Invalid CSV format' }, { status: 400 })
     }
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',')
       const agency: Record<string, string> = {}
-      
+
       for (let index = 0; index < headers.length; index++) {
         agency[headers[index]] = values[index] || ''
       }

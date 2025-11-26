@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { prisma } from '@/app/lib/prisma'
+import { prisma } from '@/lib/prisma'
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +23,10 @@ export async function GET(request: NextRequest) {
     const agencies = await prisma.agency.findMany({
       skip,
       take: limit,
-      orderBy: { created_at: 'desc' },
+      orderBy: [
+        { created_at: 'desc' },
+        { id: 'asc' }, // Secondary sort for stable pagination
+      ],
       include: {
         _count: {
           select: { contacts: true },

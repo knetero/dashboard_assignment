@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { prisma } from '@/app/lib/prisma'
+import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   const { userId } = await auth()
@@ -10,21 +10,31 @@ export async function GET() {
   }
 
   try {
-    // Get today's date range (start and end of day in UTC)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const limitHours = parseFloat(process.env.CONTACT_LIMIT_HOURS || '24')
 
-    // Count views for this user today
+    // Check if there's an active limit session
+    const limitSession = await prisma.dailyContactView.findFirst({
+      where: { userId },
+      orderBy: { date: 'desc' }
+    })
+
+    // If session exists, check if it has expired
+    if (limitSession) {
+      const sessionExpiry = new Date(limitSession.date.getTime() + limitHours * 60 * 60 * 1000)
+      const now = new Date()
+
+      // If session has expired, delete ALL records and the session
+      if (now >= sessionExpiry) {
+        await prisma.$transaction([
+          prisma.contactView.deleteMany({ where: { userId } }),
+          prisma.dailyContactView.deleteMany({ where: { userId } })
+        ])
+      }
+    }
+
+    // Count current views
     const viewCount = await prisma.contactView.count({
-      where: {
-        userId,
-        viewedAt: {
-          gte: today,
-          lt: tomorrow,
-        },
-      },
+      where: { userId }
     })
 
     // Get total contacts count
@@ -44,67 +54,6 @@ export async function GET() {
     console.error('Error checking view limit:', error)
     return NextResponse.json(
       { error: 'Failed to check view limit' },
-      { status: 500 }
-    )
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const { userId } = await auth()
-
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  try {
-    const { contactIds } = await request.json()
-
-    if (!contactIds || !Array.isArray(contactIds)) {
-      return NextResponse.json({ error: 'Contact IDs array required' }, { status: 400 })
-    }
-
-    // Get today's date range
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-
-    // Count existing views for this user today
-    const viewCount = await prisma.contactView.count({
-      where: {
-        userId,
-        viewedAt: {
-          gte: today,
-          lt: tomorrow,
-        },
-      },
-    })
-
-    if (viewCount >= 50) {
-      return NextResponse.json(
-        { error: 'Daily view limit reached', limit: 50 },
-        { status: 403 }
-      )
-    }
-
-    // Record views for all contacts
-    const viewsToCreate = contactIds.map(contactId => ({
-      userId,
-      contactId,
-    }))
-
-    await prisma.contactView.createMany({
-      data: viewsToCreate,
-    })
-
-    return NextResponse.json({ 
-      success: true, 
-      remaining: Math.max(0, 50 - viewCount - contactIds.length) 
-    })
-  } catch (error) {
-    console.error('Error recording view:', error)
-    return NextResponse.json(
-      { error: 'Failed to record view' },
       { status: 500 }
     )
   }

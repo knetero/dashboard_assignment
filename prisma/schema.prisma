@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -37,21 +34,21 @@ model Agency {
 }
 
 model Contact {
-  id                String        @id
-  first_name        String
-  last_name         String
-  email             String
-  phone             String?
-  title             String?
-  email_type        String?
-  contact_form_url  String?
-  department        String?
-  firm_id           String?
-  agency_id         String
-  created_at        DateTime      @default(now())
-  updated_at        DateTime      @updatedAt
-  agency            Agency        @relation(fields: [agency_id], references: [id], onDelete: Cascade)
-  contactViews      ContactView[]
+  id               String        @id
+  first_name       String
+  last_name        String
+  email            String
+  phone            String?
+  title            String?
+  email_type       String?
+  contact_form_url String?
+  department       String?
+  firm_id          String?
+  agency_id        String
+  created_at       DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+  agency           Agency        @relation(fields: [agency_id], references: [id], onDelete: Cascade)
+  contactViews     ContactView[]
 
   @@index([agency_id])
 }
@@ -60,8 +57,20 @@ model ContactView {
   id        String   @id @default(cuid())
   userId    String
   contactId String
-  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   viewedAt  DateTime @default(now())
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, contactId])
   @@index([userId, viewedAt])
+  @@map("contact_views")
+}
+
+model DailyContactView {
+  id        String   @id @default(cuid())
+  userId    String
+  viewCount Int      @default(0)
+  date      DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
